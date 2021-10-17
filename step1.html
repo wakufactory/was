@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=420" />
+<title>WebAudio sample</title>
+<script src="was2.js"></script>
+<script src="../WBind/WBind.js"></script>
+<script>
+const $ = o=>document.getElementById(o)
+
+class Score {
+	constructor(syn) {
+		this.syn = syn 
+		this.track = syn.createTrack({stereo_pan:0})
+	}
+	setScore(sc,ongen_init) {
+		this.sc = sc 
+		this.ongen_init = ongen_init 
+	}
+	_getNote(id) {
+		for(let i=0;i<this.sc.length;i++) {
+			if(this.sc[i].id==id) return this.sc[i]
+		}
+		return null 
+	}
+	start() {
+		let csc = this.sc[0] 
+		let ct = this.syn.now()
+		let ratio = 2 
+		this.syn.createOngen(this.ongen_init,this.track).note(csc.note,csc.len*ratio,ct)
+		ct += csc.step * ratio
+		while(csc.next) {
+			csc = this._getNote(csc.next)
+			if(!csc) break 
+			if(csc.note) this.syn.createOngen(this.ongen_init,this.track).note(csc.note,csc.len*ratio,ct)
+			ct += csc.step * ratio
+		}
+		
+	}
+	setnote( ) {
+		
+	}
+	tick() {
+		this.setnote()
+	}
+	
+}
+const ongen_init = {
+		'eg':{
+			'attack':0.1,
+			'decay':0.1,
+			'sustain':0.5,
+			'release':0.5,
+			'maxvalue':1.0,
+			'minvalue':0
+		},
+		'timemode':1
+}
+const score = 
+[
+	{id:1,note:"C4",len:0.3,next:2,step:0.5},
+	{id:2,note:"E4",len:0.3,next:3,step:0.5},
+	{id:3,note:"G4",len:0.3,next:4,step:0.5},
+	{id:4,note:"C5",len:0.5}
+]
+onload = function() {
+
+	let syn = null
+	let sc = null 
+	$('b_i').addEventListener("click", ev=>{
+		syn = new WAS.synth({'tone':false,'comp':true,'analyse':false})
+	console.log(syn)
+	})
+
+	$('b_s').addEventListener("click", ev=>{
+		if(!syn) return 
+		console.log("start")
+		sc = new Score(syn)
+		console.log(sc)
+		sc.setScore(score,ongen_init)
+		sc.track.span.pan.value = input.pan/1000
+		sc.start()
+	})
+	function tick(ts) {
+		if(syn) $('time').innerHTML = syn.now()
+		if(sc) sc.tick()
+		window.requestAnimationFrame(tick)
+	}
+	window.requestAnimationFrame(tick)
+
+	const input = WBind.create()
+	const ie = input.bindAllInput()
+	console.log(input	)
+	input.setFunc("gain",{input:v=> {
+		syn.mg.gain.value = v/1000
+	}})
+	input.setFunc("pan",{input:v=> {
+		sc.track.span.pan.value = v/1000
+	}})	
+}
+
+</script>
+<style>
+body {
+	background-color:#222;
+	color:white;
+}
+</style>
+</head>
+<body>
+<div id=time>0</div>
+<button id=b_i>init</button>
+<button id=b_s>start</button>
+<div>
+gain:<input type=range id=r_gain name=gain min=0 max=1000 value=500><br/>
+pan:<input type=range id=r_pan name=pan min=-1000 max=1000 value=0><br/>
+</div>
+</body>
+</html>
