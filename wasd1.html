@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width" />
+<title>text music</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js" integrity="sha512-CSBhVREyzHAjAFfBlIBakjoRUKp5h7VSweP0InR/pAJyptH7peuhCsqAI/snV+TwZmXZqoUklpXp6R6wMnYf5Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="was2.js"></script>
+<script>
+const $ = (o) => document.querySelector(o)
+const $A = (o) => document.querySelectorAll(o)
+
+let params 
+onload = function(){
+	const syn = new WAS.synth({'tone':true,'comp':true,'analyse':true}) ;
+	const bs = {} ;	
+	let bank = "b1" 
+	//bank * pad のsound instance作成
+	$A('div.bank > div').forEach(o=>{
+		const b = o.id 
+		o.addEventListener("click",ev=>{	//bank　切り替え
+			save(bank)
+			bank = ev.target.id
+			load(bank)
+			$A('div.bank > div').forEach(o=>o.classList.remove("on"))
+			ev.target.classList.add("on") ;
+			$A('td > div').forEach(o=>{
+				let name = params[o.id]?o.id:""
+				if(params[o.id]?.name) name = params[o.id].name
+				o.querySelector("div").innerHTML = "<strong>"+name+"</strong>"	
+			})
+		})
+		bs[b] = {} 
+		$A('td > div').forEach(o=>{
+			const id = o.getAttribute('id') ;
+			bs[b][id] = new sound(syn,id,()=> {
+				$('#'+id).classList.remove("on") ;
+			})
+		})
+	})
+
+	//パッドon/offでsound.keyon/keyoff をcall
+	let event = (window.ontouchstart===null)?"touchstart":"mousedown" ;
+	$A('td > div').forEach(o=>{
+		o.addEventListener(event,ev=>{
+			const id = ev.target.getAttribute('id') ;
+			save(bank)
+			const param = params[id]
+			if(!param) return 
+			ev.target.classList.add("on") ;
+			bs[bank][id].keyon("loop1",param)
+		})
+	})
+	event = (window.ontouchstart===null)?"touchend":"mouseup" ;
+	$A('td > div').forEach(o=>{
+		o.addEventListener(event,ev=>{
+			const id = ev.target.getAttribute('id')
+			const param = params[id]
+			bs[bank][id].keyoff("loop1",param) ;
+		})
+	})
+	load(bank)
+	$('#'+bank).click()
+	
+	sbind('s_mg',syn.mg.gain,function(v){ return (Math.pow(10,v/1000)-1)/9;} ) ;
+	sbind('s_bas',syn.bass.gain,function(v){return (v-500)/50;});
+	sbind('s_tre',syn.treble.gain,function(v){return (v-500)/50;});
+	
+	//オシロ
+	syn.showwave($('#c_wave'),50) ;
+	//パッド上の情報表示
+	const frame = (t)=>{
+		requestAnimationFrame(frame)
+		$A('td > div').forEach(o=>{
+			const id = o.id 
+			const n = bs[bank][id]?.clip?.getnote()
+			if(n) {
+				let name = id 
+				if(params[id].name) name = params[id].name
+				o.querySelector("div").innerHTML = "<strong>"+name+"</strong><br/>"+n.f.toString().substr(0,5)+"<br/>"+n.v.toString().substr(0,5)
+			}
+		})
+	}
+	requestAnimationFrame(frame)
+}
+
+function sound(syn,id,cb) {
+	this.syn = syn ;
+	this.id = id ;
+	this.onended = cb ;
+	this.clip = null 
+
+	this.keyon = function(name,p) {
+		this[name](1,p) ;
+	}
+	this.keyoff = function(name,p) {
+		this[name](0,p) ;
+	}
+}
+sound.prototype.loop1 = function(k,param) {
+	if(!param) return 
+		
+	if(param.keymode != "push" && k==0) return ;
+	if(this.st==1 ) {
+		this.clip.stop()
+		this.st = 0 
+		this.onended() 
+		return 
+	}
+	
+	if(!this.clip) {
+		this.clip = new WAS.clip(this.syn,()=>{
+			this.st = 0 
+			this.onended()
+		}) 
+	}
+	const clip = this.clip
+	clip.setongn(param.ongn)
+	clip.setseq(param.seq ) 
+	clip.start()
+	this.st = 1 
+}
+
+
+const dsrc = {b1:`
+b11:
+  name: shot
+  seq:
+    loop: 1
+    timescale: 1
+    notes:
+      - {note: 440, len: 0.5, gate: 0.3}
+  ongn:
+    waveform: square
+    eg:
+      attack: 0
+      decay: 0
+      sustain: 1
+      release: 0
+      maxvalue: 0.4
+      minvalue: 0
+b21:
+  name: loop
+  seq:
+    loop: 0
+    timescale: 1
+    notes:
+      - note: A4
+        len: 1
+        gate: 0.4
+  ongn:
+    waveform: square
+    eg:
+      attack: 0.01
+      decay: 0.0
+      sustain: 1
+      release: 0.01
+      maxvalue: .4
+      minvalue: 0
+b31:
+  name: cont
+  seq:
+    cont: 1
+    loop: 1
+    timescale: 1
+    notes:
+      - note: A4
+        len: 0
+        gate: 0
+  ongn:
+    waveform: sawtooth
+    eg:
+      attack: 0.2
+      decay: 0.1
+      sustain: 0.8
+      release: 0.8
+      maxvalue: 0.6
+      minvalue: 0
+b41:
+  seq:
+    loop: 0
+    bpm: 120
+    mml: "l8o4h1 CEG<CEC>GE"
+  ongn:
+    poly: 1
+    waveform: sawtooth
+    eg:
+      attack: 0.2
+      decay: 0.1
+      sustain: 0.6
+      release: 0.8
+      maxvalue: 0.6
+      minvalue: 0
+#---------------------------------
+b12:
+  seq:
+    loop: 0
+    bpm: 200
+#   mml: "l8h.5 CDEFGAB<C>BAGFED"
+    mml: "l8o4h0.8 CEG<CEG<C>GEC>GE"
+  ongn:
+    waveform: triangle
+    cutoff: 2000
+    eg:
+      attack: 0.01
+      decay: 0.01
+      sustain: 0.4
+      release: 0.1
+      maxvalue: 0.8
+      minvalue: 0
+b22:
+  seq:
+    loop: 0
+    bpm: 205
+#    mml: "o4l8h.5 CDEFGAB<C>BAGFED"
+    mml: "l8o4h0.8 CEG<CEG<C>GEC>GE"
+  ongn:
+    waveform: triangle
+    cutoff: 2000
+    eg:
+      attack: 0.01
+      decay: 0.01
+      sustain: 0.4
+      release: 0.1
+      maxvalue: 0.8
+      minvalue: 0
+b32:
+  seq:
+    loop: 0
+    bpm: 90
+    mml: "o4l8h.5 CDEFGAB<C>BAGFED"
+  ongn:
+    waveform: triangle
+    cutoff: 2000
+    eg:
+      attack: 0.01
+      decay: 0.01
+      sustain: 0.4
+      release: 0.1
+      maxvalue: 0.8
+      minvalue: 0
+b42:
+  seq:
+    loop: 1
+    timescale: 4
+    mml: AR8{CD#E}8F
+  ongn:
+    waveform: square
+    eg:
+      attack: 0
+      decay: 0
+      sustain: 0.4
+      release: 0
+      maxvalue: 0.4
+      minvalue: 0
+
+
+
+#---------------------------------
+b13:
+  seq:
+    loop: 0
+    bpm: 60
+    mml:
+      - "l16o5 DC#D>DC#AEF# D<DC#>B<C#F#AB"
+      - "l16o5 GF#EGF#EDC# >BAGF#EGF#E"
+      - "l16o4 DEF#GAEAG F#BAGAGF#E"
+      - "l16o4 D>B<B<C#DC#>BA GF#EBABAG"
+#      - "l4o5 F#EDC#>BAB<C#"
+#      - "l4o5 DC#>BAGF#GE"
+#      - "l8o4 DF#AGF#DF#E D>B<DAGBAG"
+#      - "l8o4 F#DE<C#DF#A>A BGAF#D<DD.l16C#"  
+  ongn:
+    poly: 1
+    waveform: triangle
+    cutoff: 1000
+    resonance: 5
+    lfo_osc:
+      frequency: 10
+      level: 2
+    eg:
+      attack: 0.05
+      decay: 0.01
+      sustain: 0.8
+      release: 0.3
+      maxvalue: 1
+      minvalue: 0
+b43:
+  seq:
+    cont: 0
+    loop: 1
+    timescale: 1
+    notes:
+      - {note: "G3", len: 0.05, gate: 0.1}
+      - {note: "B-3", len: 0.05, gate: 0.1}
+      - {note: "C4", len: 0.05, gate: 0.1}
+      - {note: "E4", len: 0.25, gate: 0.1}
+  ongn:
+    poly: 1
+    waveform: sawtooth
+    eg:
+      attack: 0.1
+      decay: 0.1
+      sustain: 0.6
+      release: 0.8
+      maxvalue: 0.6
+      minvalue: 0
+#---------------------------------
+b14:
+  seq:
+    loop: 0
+    bpm: 60
+    mml: "l4o3 D>ABF#GDGA"
+  ongn:
+    eg:
+      attack: 0.05
+      decay: 0.01
+      sustain: 1
+      release: 0.2
+      maxvalue: 1.2
+      minvalue: 0
+b24:
+  seq:
+    loop: 1
+    bpm: 60
+    mml:
+      - "l4o5 F#EDC#>BAB<C#"
+      - "l4o5 DC#>BAGF#GE"
+      - "l8o4 DF#AGF#DF#E D>B<DAGBAG"
+      - "l8o4 F#DE<C#DF#A>A BGAF#D<DD.l16C#" 
+      - "l16o5 DC#D>DC#AEF# D<DC#>B<C#F#AB"
+      - "l16o5 GF#EGF#EDC# >BAGF#EGF#E"
+      - "l16o4 DEF#GAEAG F#BAGAGF#E"
+      - "l16o4 D>B<B<C#DC#>BA GF#EBABAG"
+  ongn:
+    waveform: triangle
+    lfo_osc:
+      frequency: 20
+      level: 5
+    eg:
+      attack: 0.05
+      decay: 0.01
+      sustain: 0.8
+      release: 0.2
+      maxvalue: 1
+      minvalue: 0
+
+b34:
+  seq:
+    loop: 1
+    bpm: 60
+    mml:
+      - "l4o5 F#EDC#>BAB<C#"
+      - "l4o5 DC#>BAGF#GE"
+      - "l8o4 DF#AGF#DF#E D>B<DAGBAG"
+      - "l8o4 F#DE<C#DF#A>A BGAF#D<DD.l16c#"
+      - "l16o5 DC#D>DC#AEF# D<DC#>B<C#F#AB"
+      - "l16o5 GF#EGF#EDC# >BAGF#EGF#E"
+      - "l16o4 DEF#GAEAG F#BAGAGF#E"
+      - "l16o4 D>B<B<C#DC#>BA GF#EBABAG"
+  ongn:
+    waveform: triangle
+    eg:
+      attack: 0.05
+      decay: 0.01
+      sustain: 0.8
+      release: 0.2
+      maxvalue: 1
+      minvalue: 0
+
+b44:
+  seq:
+    loop: 1
+    bpm: 60
+    mml:
+      - "l4o5 F#EDC#>BAB<C#"
+      - "l4o5 DC#>BAGF#GE"
+      - "l8o4 DF#AGF#DF#E D>B<DAGBAG"
+      - "l8o4 F#DE<C#DF#A>A BGAF#D<DD.l16c#"
+      - "l16o5 DC#D>DC#AEF# D<DC#>B<C#F#AB"
+      - "l16o5 GF#EGF#EDC# >BAGF#EGF#E"
+      - "l16o4 DEF#GAEAG F#BAGAGF#E"
+      - "l16o4 D>B<B<C#DC#>BA GF#EBABAG"
+  ongn:
+    waveform: triangle
+    cutoff: 800
+    eg:
+      attack: 0.05
+      decay: 0.01
+      sustain: 0.8
+      release: 0.2
+      maxvalue: 1
+      minvalue: 0
+`}
+
+function save(bank) {
+	const src = $('#src').value
+	let d 
+	try {
+		d = jsyaml.load( src )
+	} catch (err) {
+		$('#msg').innerHTML = "data error, not saved" 
+		return 		
+	}
+
+	params = d 
+	let sd = JSON.parse(localStorage.getItem("wasd1") )
+	if(sd.allsrc) sd = {banks:{b1:src.allsrc}}
+	sd.banks[bank] = src 
+	localStorage.setItem("wasd1",JSON.stringify(sd))
+	$('#msg').innerHTML = "bank "+bank+" saved"
+}
+function load(bank) {
+	let src = JSON.parse(localStorage.getItem("wasd1") )
+	if(src===null || location.hash == "#l") {
+		$('#src').value = dsrc[bank]
+		return 
+	}
+	if(src.allsrc) src = {banks:{b1:src.allsrc}}
+	let  d
+	try {
+		d = jsyaml.load(src.banks[bank]) 
+	}catch (err) {
+		$('#msg').innerHTML = "load err" 
+		return 
+	}	
+	params = d 
+	console.log(d)
+	$('#src').value = src.banks[bank] 
+	$('#msg').innerHTML = "bank "+bank+" loaded" 
+}
+//スライダーとパラメータのバインド
+function sbind(id,tgt,func) {
+	$A('#'+id).forEach(o=>{
+		o.addEventListener('input',(ev)=> {
+			const v = func(ev.target.value) ;
+			$('#'+id+'_v').value = (v) ;
+			tgt.value = v ;
+		})
+	})
+}
+</script>
+<style>
+html,body {
+	width:100% ;
+	height:100% ;
+	margin:0 ;
+	background-color:#222;
+	color:white;
+}
+div {
+	box-sizing: border-box;
+}
+#main {
+	width:100% ;
+	height:100% ;
+	display:flex ;
+}
+#left {
+	width:50vw ;
+	height:100% ;
+	padding:0.5rem ;
+	overflow:hidden ;
+}
+#right {
+	width:50vw ;
+	height:100% ;
+	padding:0.5rem ;
+}
+#right textarea {
+	width:calc(50vw - 2rem) ;
+	height:95% ;
+	background-color:#222; 
+	color:white ; 
+	font-family: monospace ;
+}
+table.pad {
+	user-select:none ;	
+	-webkit-user-select:none ;
+}
+table.pad td > div {
+	width:16vh ;
+	height:16vh ;
+	border:1px solid black ;
+	border-radius:10px ;
+	background-color:#ccc;
+}
+table.pad td div.on {
+	background-color:#fee ;
+}
+table.pad td > div > div {
+	pointer-events: none;
+	padding:1rem ;
+	text-align:center ;
+	color:#222 ;
+}
+#c_wave {
+	width:30vh ;
+	height:15vh ;
+}
+#msg {
+	color:#c88 ;
+}
+div.bank {
+	display:flex ;
+	user-select:none ;	
+	-webkit-user-select:none ;
+}
+div.bank div {
+	width:calc(16vh - 1rem);
+	height:2rem;
+	margin-left:1rem ;
+	margin-bottom:1rem ;
+	padding:0.5rem;
+	color:black ;
+	background-color:#444 ; 
+	text-align:center ;
+	cursor:pointer ;
+}
+div.bank div.on {
+	background-color:#ccc ; 	
+}
+#bottom {
+	display:flex ;
+	margin-top:1rem ;
+}
+#control {
+	margin-left:2rem ;
+}
+</style>
+</head>
+<body>
+<div id=main>
+<div id=left>
+<div class=bank>
+<div id=b1 class=on>BANK1</div>
+<div id=b2>BANK2</div>
+<div id=b3>BANK3</div>
+<div id=b4>BANK4</div>
+</div>
+<table class=pad>
+<tr>
+<td><div id="b11"><div></div></div></td>
+<td><div id="b21"><div></div></div></td>
+<td><div id="b31"><div></div></div></td>
+<td><div id="b41"><div></div></div></td>
+</tr>
+<tr>
+<td><div id="b12"><div></div></div></td>
+<td><div id="b22"><div></div></div></td>
+<td><div id="b32"><div></div></div></td>
+<td><div id="b42"><div></div></div></td>
+</tr>
+<tr>
+<td><div id="b13"><div></div></div></td>
+<td><div id="b23"><div></div></div></td>
+<td><div id="b33"><div></div></div></td>
+<td><div id="b43"><div></div></div></td>
+</tr>
+<tr>
+<td><div id="b14"><div></div></div></td>
+<td><div id="b24"><div></div></div></td>
+<td><div id="b34"><div></div></div></td>
+<td><div id="b44"><div></div></div></td>
+</tr>
+</table>
+<div id=bottom>
+<div id=wave>
+<canvas id=c_wave></canvas>
+</div>
+<div id=control>
+gain:<input id="s_mg" type="range" min="0" max="1000" value="500"/><input type="text" size="4" id="s_mg_v"/><br/>
+bass:<input id="s_bas" type="range" min="0" max="1000" value="500"/><input type="text" size="4" id="s_bas_v"/><br/>
+treble:<input id="s_tre" type="range" min="0" max="1000" value="500"/><input type="text" size="4" id="s_tre_v"/><br/>
+</div>
+</div> 
+</div>
+<div id=right>
+<div id=msg>.</div>
+<textarea id=src></textarea>
+</div>
+</div>
+</body>
