@@ -8,6 +8,8 @@ class Synth {
 			return ;
 		}
 		this.ctx = new window.AudioContext() ;
+		this.queue = new SeqQueue(this.ctx)
+
 		this.mg = this.ctx.createGain() ;
 		this.mg.gain.value = 0.6 ;
 		this.innode = this.mg ;
@@ -36,51 +38,9 @@ class Synth {
 			this.innode = this.comp ;
 		}
 		this.mg.connect(this.ctx.destination) ;
-		this.queue = [] 
-		
-		this.intval = 20 
-		this.dtime = 80/1000 ;
-		let last = 0
-		let qq = null	
-		const frame = (time)=> {
-//			console.log(this.queue.length)
-			let t = this.ctx.currentTime
-			const nq = []
-			for(let q of this.queue) {
-				if(q.time < t+this.dtime) {
-					if(q.note)	 {
-						q.ongn.note(q.note,q.len,q.time) ;
-						qq = q.ongn
-					}
-					if(q.loop) {	//loop callback
-						q.loop(t)
-					}
-				} else nq.push(q) ;
-			}
-			this.queue = nq ;
-//			requestAnimationFrame(frame)
-//			if(qq) console.log(qq.e1.gain.value)
-			let d = t - last 
-			last = t
-		}
-		setInterval(frame,this.intval)
-//		requestAnimationFrame(frame)	
+
 	}
-	setqueue(id,ongn,note) {
-		if(note.time < this.now()+this.dtime) {	//即時スケジュール
-			ongn.note(note.note,note.len,note.time)
-			return 
-		}
-		this.queue.push(
-			{id:id,ongn:ongn,note:note.note,len:note.len,time:note.time}
-		)
-	}
-	setloop(id,time,callback) {
-		this.queue.push({id:id,time:time,loop:callback})
-	}
-	clearqueue(id) {
-		this.queue = this.queue.filter((q)=>q.id !== id)
-	}
+
 	now() {
 		return this.ctx.currentTime
 	}
@@ -96,13 +56,7 @@ class Synth {
 		return t ;
 	}
 	copyobj(s,d) {
-		for(let  k in s) {
-			if(s[k]!==null && typeof s[k]=="object") {
-				if(d[k]===undefined) d[k] = {} ;
-				this.copyobj(s[k],d[k]) ;
-			}
-			else d[k]=s[k] ;
-		}
+		d = structuredClone(s)
 	}
 	showwave(can,intv) {
 		can = can.getContext('2d') ;
@@ -133,74 +87,71 @@ class Synth {
 			can.stroke() ;
 		},intv);	
 	}
-	mml2note(mml,opt=null) {
-		let oct = 4 
-		let len = 4
-		let gate = 0.8
-		
-		function getlen(s) {
-			const m = s.match(/([0-9]*)(\.*)/)
-			if(m==null) return 1/len
-			let l = m[1]>0?1/m[1]:1/len
-			if(m[2]!="") l = l * 1.5 
-			return l 
-		}
-		function parsmml(mml) {
-			const notes = []
-			const exp = RegExp("O[1-8]|<|>|L[0-9]+|H[0-9\\.]+|"+
-				"[CDEFGAB][!#-+]*[0-9]*\\.*&?|R[0-9]*\\.*|"+
-				"{([A-G][!#-+]*|<|>)+}[0-9]*",
-			'gi')
-//				console.log(/O[1-8]|<|>|L[0-9]+|H[0-9\.]+|[CDEFGAB][!#-+]*[0-9]*\.*&?|R[0-9]*\.*|{([A-G][!#\-+]*|<|>)+}[0-9]*/gi)
-			const m = mml.match(exp)
-			console.log(m)
-			for(let n of m) {
-				const c = n[0].toUpperCase()
-				switch(c) {
-					case "O":
-						oct = parseInt(n.substr(1))
-						break ; 
-					case "<":
-						oct += 1 ;
-						break ;
-					case ">":
-						oct -= 1 ;
-						break 
-					case "L":
-						len = parseInt(n.substr(1))
-						break ;  				
-					case "H":
-						gate = parseFloat(n.substr(1))
-						break ;  
-					case "{":
-						const mm = n.match(/{(.*)}([0-9]*)/)
-						const rr = parsmml(mm[1]) 
-						const rate = (getlen(mm[2])/rr.length)*len
-						for(let nm of rr) {
-							notes.push({
-								note:nm.note,
-								len:nm.len*rate,
-								gate:nm.gate*rate
-							})
-						}
-						break 
-					case "R":
-					default:
-						const s = n.substr(1).match(/([!#-+]*)([0-9]*\.*)(&?)/)
-						let l = getlen(s[2])
-						notes.push({
-							note:c+s[1]+oct,
-							len:l,
-							gate:gate*l
-						})
-				}
-			}
-			return notes 
-		}
-		if(Array.isArray(mml)) mml = mml.join("")
-		return parsmml(mml)
-	}
+
 } // Synth
+
+class SeqQueue {
+	constructor(ctx) {
+		this.ctx = ctx
+		this.queue = [] 
+		this.pqueue = []
+		
+		this.intval = 20 
+		this.dtime = 80/1000 ;
+		let last = 0
+		let qq = null	
+
+		const frame = (time)=> {
+//			console.log(this.queue.length)
+			let now = this.ctx.currentTime
+			const nq = []
+			for(let q of this.queue) {
+				if(q.time < now+this.dtime) {
+					if(q.note)	 {
+						const et = q.ongn.note(q.note,q.len,q.time) ;
+						this.pqueue.push({ongn:q.ongn,time:q.time,len:q.len,endtime:et,id:q.id,name:q.name}) 
+					}
+					if(q.loop) {	//loop callback
+						q.loop(now)
+					}
+				} else nq.push(q) ;
+			}
+
+			this.queue = nq ;
+			let pq = [] 
+			for(let q of this.pqueue) {
+				if(q.endtime < now) {
+					if(q.ongn.poly) q.ongn.disconnect()
+				} else pq.push(q)
+			}
+			this.pqueue = pq 
+			if(this.pqueue.length>0) {
+				console.log(now)
+				console.log(this.pqueue)
+			}
+			let d = now - last 
+			last = now
+		}
+		setInterval(frame,this.intval)
+	}
+	setqueue(id,ongn,note) {
+		if(note.time < this.ctx.currentTime +this.dtime) {	//即時スケジュール
+			const et = ongn.note(note.note,note.len,note.time)
+			this.pqueue.push({ongn:ongn,time:note.time,len:note.len,endtime:et,id:id,name:note.name}) 
+			return 
+		}
+		this.queue.push(
+			{id:id,ongn:ongn,note:note.note,len:note.len,time:note.time,name:note.name}
+		)
+	}
+	setloop(id,time,callback) {
+		this.queue.push({id:id,time:time,loop:callback})
+	}
+	clearqueue(id) {
+		this.queue = this.queue.filter((q)=>q.id !== id)
+	}	
+	
+}//Sqeuence
 
 class Track {
 	constructor(synth) {
@@ -229,12 +180,33 @@ class Track {
 		}		
 	}
 }//Track
+// osc1 - osc1_a ---- filter1 --- amp1 --- out
+// osc2 - osc2_a  -|        env1---|
+// noise - noise_a-|
+// lfo_amp -- lfo_amp_a -----------|
 
 class Ongen {
-	constructor(synth) {
-		this.synth = synth ;
-		this.ctx = synth.ctx ;
-	}
+constructor(synth) {
+	this.synth = synth ;
+	this.ctx = synth.ctx ;
+	this.poly = false 
+	this.nodes = [
+		{type:"osc",name:"osc1"},
+		{type:"filt",name:"filt1"},
+		{type:"env",name:"env1"},
+		{type:"gain",name:"gain1"},
+		{type:"osc",name:"lfo_osc1"},
+		{type:"gain",name:"lfo_osc1_gain"}
+	]
+	this.patch = [
+		{out:"osc",'in':"filt1"},
+		{out:"filt1",'in':"gain1"},
+		{out:"gain1",'in':"master"},
+		{out:"env1",'in':"gain1",target:"gain"},
+		{out:"lf_osc1",'in':"lfo_osc1_gain"},
+		{out:"lf_osc1_gain",'in':"osc1",target:"detune"}
+	]
+}
 init(param,track=null) {
 	this.outnode = this.synth.innode 	
 	if(track) this.outnode = track.innode
@@ -242,19 +214,17 @@ init(param,track=null) {
 	this.e1 = this.ctx.createGain() ;
 	this.f1 = this.ctx.createBiquadFilter() ;
 	this.o1 = this.ctx.createOscillator() ;
-	if(param.waveform=="noise") {
-		let  bufsize = 1024 ;
-		this.n1 = this.ctx.createScriptProcessor(bufsize) ;
-		this.n1.onaudioprocess = function(ev) {
-			let  buf0 = ev.outputBuffer.getChannelData(0);
-			let  buf1 = ev.outputBuffer.getChannelData(1);
-			for(let  i = 0; i < bufsize; ++i) {
-				buf0[i] = buf1[i] = (Math.random() - 0.5) ;
-			}
-//			console.log("p") ;
+	if(param.osc1?.waveform=="noise") {
+		var bufsize = Math.floor(0.5*this.ctx.sampleRate) ;
+		var buf = this.ctx.createBuffer(1,bufsize,this.ctx.sampleRate);
+		var buf0 = buf.getChannelData(0);
+		for(var i = 0; i < bufsize; ++i) {
+			buf0[i] = (Math.random()*2 -1.0) ;
 		}
-		this.o1.connect(this.n1) ;
-		this.n1.connect(this.f1) ;
+		this.no1 = this.ctx.createBufferSource() ;
+		this.no1.buffer = buf ;
+		this.no1.loop = true ;
+		this.no1.connect(this.f1) ;
 	} else {
 		this.o1.connect(this.f1) ;
 	}
@@ -269,7 +239,7 @@ init(param,track=null) {
 		this.l1 = this.ctx.createOscillator() ;
 		this.l1g = this.ctx.createGain() ;
 		this.l1.connect(this.l1g) ;
-		this.l1g.connect(this.o1.frequency) ;
+		this.l1g.connect(this.o1.detune) ;
 	}
 	if(param.lfo_flt) {
 		this.l2 = this.ctx.createOscillator() ;
@@ -283,21 +253,9 @@ init(param,track=null) {
 		this.lag = this.ctx.createGain() ;
 		this.l3.connect(this.l3g) ;
 		this.l3g.connect(this.lag.gain) ;
+		this.f1.disconnect()
 		this.f1.connect(this.lag);
 		this.lag.connect(this.e1) ;
-	}
-	if(param.stereo_pan!==undefined) {
-		this.span = this.ctx.createStereoPanner()
-		this.e1.disconnect()
-		this.e1.connect(this.span)
-		this.span.connect(this.outnode) 
-		this.span.pan.setValueAtTime(param.stereo_pan,0)
-	}
-	if(param.space_pan!==undefined) {
-		this.vpan = this.ctx.createPanner()
-		this.e1.disconnect()
-		this.e1.connect(this.vpan)
-		this.vpan.connect(this.outnode) 		
 	}
 	this.opt = {
 		'eg':{
@@ -312,16 +270,35 @@ init(param,track=null) {
 	};
 	this.setopt(param) ;
 }
+disconnect() {
+	this.e1.disconnect()
+}
 
 setopt(param) {
 	if(param) {
-		this.synth.copyobj(param,this.opt) ;
+		this.opt = structuredClone(param) ;
 	}
 //	console.log(this.opt) ;
-	if(this.opt.waveform && this.opt.waveform!="noise") this.o1.type = this.opt.waveform ;
-	if(this.opt.cutoff) this.f1.frequency.value = this.opt.cutoff ;
-	if(this.opt.resonance) this.f1.Q.value = this.opt.resonance ;
-	if(this.opt.ftype) this.f1.type = this.opt.ftype ;
+	if(this.opt.osc1?.waveform && this.opt.osc1.waveform!="noise") this.o1.type = this.opt.osc1.waveform ;
+	if(this.opt.osc1?.detune) this.o1.detune = this.opt.osc1.detune 
+	if(this.opt.osc1?.overtone) {
+		const opts = {} 
+		let real = this.opt.osc1.overtone.cos
+		if(real) opts.real = Float32Array.from(real) 
+		let imag = this.opt.osc1.overtone.sin
+		if(imag) opts.imag = Float32Array.from(imag)
+		this.o1.setPeriodicWave(
+			new PeriodicWave(this.ctx,opts)
+		)
+	}
+
+	if(this.opt.filt1?.cutoff) this.f1.frequency.value = this.opt.filt1.cutoff ;
+	if(this.opt.filt1?.resonance) this.f1.Q.value = this.opt.filt1.resonance ;
+	if(this.opt.filt1?.gain) this.f1.gain.value = this.opt.filt1.gain ;
+	if(this.opt.filt1?.ftype) this.f1.type = this.opt.filt1.ftype ;
+	if(this.no1) {
+		if(param.osc1.noiseRate) this.no1.playbackRate.value = param.osc1.noiseRate
+	}
 	if(param.lfo_osc) {
 		this.l1.frequency.value = param.lfo_osc.frequency ;
 		this.l1.type = param.lfo_osc.waveform==undefined?"sine":param.lfo_osc.waveform ;
@@ -329,13 +306,14 @@ setopt(param) {
 	}
 	if(param.lfo_flt) {
 		this.l2.frequency.value = param.lfo_flt.frequency ;
-		this.l2.type = param.lfo_flt.waveform ;
+		this.l2.type = param.lfo_flt.waveform==undefined?"sine":param.lfo_flt.waveform ;
 		this.l2g.gain.value = param.lfo_flt.level ;
 	}
 	if(param.lfo_amp) {
 		this.l3.frequency.value = param.lfo_amp.frequency ;
-		this.l3.type = param.lfo_amp.waveform ;
+		this.l3.type = param.lfo_amp.waveform==undefined?"sine":param.lfo_amp.waveform ;
 		this.l3g.gain.value = param.lfo_amp.level ;
+		this.lag.gain.value = param.lfo_amp.ofs==undefined?0: param.lfo_amp.ofs
 	}
 
 	let  self = this ;
@@ -349,10 +327,11 @@ setopt(param) {
 start(t) {
 	if(!this.sf) {
 		this.o1.start(t) ;
-		if(this.l1) this.l1.start(t) ;
-		if(this.l2) this.l2.start(t) ;
-		if(this.l3) this.l3.start(t) ;
 		this.sf = true ;
+		if(this.no1) this.no1.start(t)
+		if(this.l1) this.l1.start(t)
+		if(this.l2) this.l2.start(t)
+		if(this.l3) this.l3.start(t)
 	}
 }
 
@@ -375,9 +354,7 @@ console.log(f+" "+len+" "+time)
 		this.o1.frequency.cancelAndHoldAtTime(tofs==0?0:(tofs-0.01)) //前の音のenvelope解除
 	}
 	this.start(tofs) ;
-	if(!this.opt.continuous) {
-//		this.o1.stop(this.endtime) ;	
-	}
+	return this.endtime
 }
 noteoff(time) {
 	const endtime = time +this.opt.eg.release  ;
@@ -422,20 +399,22 @@ note2freq(note) {
 class Clip {
 	constructor(synth,cb=null) {
 		this.syn = synth
+		this.queue = synth.queue
 		this.id = crypto.randomUUID()
 		this.cb = cb 
 	}
 	setongn(opt) {
 		opt.timemode = 1 
 		this.opt = opt
-		if(!this.opt.poly) {		// mono mode single instance
+		if(!this.opt.poly) {		// mono mode single ongen instance
 			if(!this.ongn) this.ongn = this.syn.createOngen(opt)
 			else this.ongn.setopt(opt)
+			this.ongn.poly = false 
 		}
 	}
 	setseq(seq) {
 		if(seq.mml) {
-			seq.notes = this.syn.mml2note(seq.mml)
+			seq.notes = MML.mml2note(seq.mml)
 //			console.log(seq) 
 		}
 		this.seq = seq 
@@ -446,8 +425,11 @@ class Clip {
 		let t = st 
 		for(let a of this.seq.notes) {
 			if(typeof a.note != "string" ||  a.note.substr(0,1).toUpperCase()!="R") { 
-				if(this.opt.poly) this.ongn = this.syn.createOngen(this.opt)
-				this.syn.setqueue(this.id,this.ongn,{note:a.note,len:a.gate*ts,time:t})
+				if(this.opt.poly) {
+					this.ongn = this.syn.createOngen(this.opt)
+					this.ongn.poly = true 
+				}
+				this.queue.setqueue(this.id,this.ongn,{note:a.note,len:a.gate*ts,time:t,id:this.id,name:a.name})
 			}
 			t += a.len * ts  
 		}
@@ -459,7 +441,7 @@ class Clip {
 		if(this.seq.cont) return 
 		--this.loopc 
 		if(this.play )  {
-			this.syn.setloop(this.id,this.et-0.1,t=>{
+			this.queue.setloop(this.id,this.et-0.01,t=>{
 				if(this.loopc==0) {
 					console.log("end")
 					if(this.cb) this.cb() 
@@ -475,7 +457,7 @@ class Clip {
 	stop() {
 		console.log("stop") 
 		if(this.seq.cont) this.ongn.noteoff(this.syn.now())
-		this.syn.clearqueue(this.id)
+		this.queue.clearqueue(this.id)
 
 		this.play = 0 
 		this.loopc = 0 
@@ -486,7 +468,82 @@ class Clip {
 			f:this.ongn.o1.frequency.value,
 			v:this.ongn.e1.gain.value 
 		}
+
+	}
+	disconnect() {
+		if(this.ongn) this.ongn.disconnect()
 	}
 } //Clip
 
-const WAS = {synth:Synth,ongen:Ongen,track:Track,clip:Clip}
+class MML {
+	static mml2note(mml,opt=null) {
+		let oct = 4 
+		let len = 4
+		let gate = 0.8
+		
+		function getlen(s) {
+			const m = s.match(/([0-9]*)(\.*)/)
+			if(m==null) return 1/len
+			let l = m[1]>0?1/m[1]:1/len
+			if(m[2]!="") l = l * 1.5 
+			return l 
+		}
+		function parsmml(mml) {
+			const notes = []
+			const exp = RegExp("O[1-8]|<|>|L[0-9]+|H[0-9\\.]+|"+
+				"[CDEFGAB][!#-+]*[0-9]*\\.*&?|R[0-9]*\\.*|"+
+				"{([A-G][!#-+]*|<|>)+}[0-9]*",
+			'gi')
+//				console.log(/O[1-8]|<|>|L[0-9]+|H[0-9\.]+|[CDEFGAB][!#-+]*[0-9]*\.*&?|R[0-9]*\.*|{([A-G][!#\-+]*|<|>)+}[0-9]*/gi)
+			const m = mml.match(exp)
+			console.log(m)
+			for(let n of m) {
+				const c = n[0].toUpperCase()
+				switch(c) {
+					case "O":
+						oct = parseInt(n.substr(1))
+						break ; 
+					case "<":
+						oct += 1 ;
+						break ;
+					case ">":
+						oct -= 1 ;
+						break 
+					case "L":
+						len = parseInt(n.substr(1))
+						break ;  				
+					case "H":
+						gate = parseFloat(n.substr(1))
+						break ;  
+					case "{":
+						const mm = n.match(/{(.*)}([0-9]*)/)
+						const rr = parsmml(mm[1]) 
+						const rate = (getlen(mm[2])/rr.length)*len
+						for(let nm of rr) {
+							notes.push({
+								name:nm.name,
+								note:nm.note,
+								len:nm.len*rate,
+								gate:nm.gate*rate
+							})
+						}
+						break 
+					case "R":
+					default:
+						const s = n.substr(1).match(/([!#-+]*)([0-9]*\.*)(&?)/)
+						let l = getlen(s[2])
+						notes.push({
+							name:c+oct,
+							note:c+s[1]+oct,
+							len:l,
+							gate:gate*l
+						})
+				}
+			}
+			return notes 
+		}
+		if(Array.isArray(mml)) mml = mml.join("")
+		return parsmml(mml)
+	}	
+}
+const WAS = {synth:Synth,ongen:Ongen,track:Track,queue:SeqQueue,clip:Clip,mml:MML}
