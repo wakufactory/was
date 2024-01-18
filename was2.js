@@ -491,6 +491,9 @@ class Clip {
 		}]
 	}
 	getqueue() {
+		if(this.seq.cont) {
+			return this.play?[{ongn:this.ongn}]:null
+		}
 		const q = this.queue.getplaying(this.id)  
 		return q.length==0?null:q 
 	}
