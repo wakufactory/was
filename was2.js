@@ -7,7 +7,7 @@ class Synth {
 			this.error = true; 
 			return ;
 		}
-		this.ctx = new window.AudioContext() ;
+		this.ctx = opt.context?opt.context:new window.AudioContext() ;
 		this.queue = new SeqQueue(this.ctx)
 
 		this.mg = this.ctx.createGain() ;
@@ -37,7 +37,7 @@ class Synth {
 			this.comp.connect(this.innode) ;
 			this.innode = this.comp ;
 		}
-		this.mg.connect(this.ctx.destination) ;
+		if(opt.destination!==null) this.mg.connect(opt.destination?opt.destination:this.ctx.destination) ;
 
 	}
 
@@ -91,24 +91,24 @@ class Synth {
 } // Synth
 
 class SeqQueue {
-	constructor(ctx) {
+	constructor(ctx,opt={}) {
 		this.ctx = ctx
-		this.queue = [] 
-		this.pqueue = []
+		this.queue = [] 	//これから再生するqueue
+		this.pqueue = []	//再生中のqueue
 		
-		this.intval = 20 
-		this.dtime = 80/1000 ;
+		this.intval = opt.intval?opt.intval:20 			//queueフェッチのインターバル(ms)
+		this.dtime = (opt.dtime?opt.dtime:80)/1000 ;//再生予約する範囲の時間(sec)
 		let last = 0
 		let qq = null	
-
+		//インターバルごとに呼ばれる
 		const frame = (time)=> {
 //			console.log(this.queue.length)
 			let now = this.ctx.currentTime
 			const nq = []
 			for(let q of this.queue) {
-				if(q.time < now+this.dtime) {
+				if(q.time < now+this.dtime) {	//再生予約時間をすぎたもの
 					if(q.note)	 {
-						const et = q.ongn.note(q.note,q.len,q.time) ;
+						const et = q.ongn.note(q.note,q.len,q.time) ;	//ongnに再生設定
 						this.pqueue.push({ongn:q.ongn,time:q.time,len:q.len,endtime:et,id:q.id,name:q.name}) 
 					}
 					if(q.loop) {	//loop callback
@@ -116,18 +116,19 @@ class SeqQueue {
 					}
 				} else nq.push(q) ;
 			}
-
 			this.queue = nq ;
+	
 			let pq = [] 
-			for(let q of this.pqueue) {
-				if(q.endtime < now) {
-					if(q.ongn.poly) q.ongn.disconnect()
+			for(let q of this.pqueue) {	//再生予約中queue
+				if(q.time < now) q.playing = 1 	//再生中
+				if(q.endtime < now) {	//再生終了
+					if(q.ongn.poly) q.ongn.disconnect()	//polyモードのときは音源をdisconnect 
 				} else pq.push(q)
 			}
 			this.pqueue = pq 
 			if(this.pqueue.length>0) {
-				console.log(now)
-				console.log(this.pqueue)
+//				console.log(now)
+//				console.log(this.pqueue)
 			}
 			let d = now - last 
 			last = now
@@ -147,9 +148,20 @@ class SeqQueue {
 	setloop(id,time,callback) {
 		this.queue.push({id:id,time:time,loop:callback})
 	}
+	getplaying(id) {
+		let ret = [] 
+		for(let q of this.pqueue) {
+			if(q.id==id && q.playing==1) ret.push(q) 
+		}
+		return ret 
+	}
 	clearqueue(id) {
 		this.queue = this.queue.filter((q)=>q.id !== id)
 	}	
+	allclear() {
+		this.queue = []
+		this.pqueue = [] 
+	}
 	
 }//Sqeuence
 
@@ -234,6 +246,9 @@ init(param,track=null) {
 	this.e1.gain.value = 0 ;
 	this.tune = 440 ;
 	this.sf = false ;
+	
+	this.mainosc = this.o1 
+	this.mainenv = this.e1 
 	
 	if(param.lfo_osc) {
 		this.l1 = this.ctx.createOscillator() ;
@@ -339,7 +354,7 @@ note(f,len,time) {
 	if(time==undefined) time = 0 ;
 	if(typeof f =="string") f = this.note2freq(f) ;
 	let  now=this.ctx.currentTime ;
-console.log(f+" "+len+" "+time)
+//console.log(f+" "+len+" "+time)
 
 	let tofs = (this.opt.timemode==1?0:now) + time
 	this.o1.frequency.setValueAtTime(f, tofs) ;
@@ -376,6 +391,12 @@ setenv(tgt,now,len,param) {
 	} else endtime = 0
 //	console.log("eg end"+endtime)
 	return endtime ;
+}
+getnote() {
+	return {
+		f:this.mainosc.frequency.value,
+		v:this.mainenv.gain.value 
+	}	
 }
 note2freq(note) {
 	let  na = {'c':0,'d':2,'e':4,'f':5,'g':7,'a':9,'b':11} ;
@@ -435,27 +456,27 @@ class Clip {
 		}
 		this.et = t 		
 	}
-	setqueue(st) {
+	playclip(st) {
 		this.st = (st===null)?this.syn.now():st 
 		this.setnote(this.st)
-		if(this.seq.cont) return 
+		if(this.seq.cont) return 	//単音連続再生モード
 		--this.loopc 
 		if(this.play )  {
-			this.queue.setloop(this.id,this.et-0.01,t=>{
+			this.queue.setloop(this.id,this.et-0.01,t=>{	//ループのcallbackをqueueに設定
 				if(this.loopc==0) {
 					console.log("end")
 					if(this.cb) this.cb() 
-				}else this.setqueue(this.et)
+				}else this.playclip(this.et)
 			})
 		}
 	}
 	start(st=null) {
 		this.play = 1 
 		this.loopc = this.seq.loop 
-		this.setqueue(st) 
+		this.playclip(st) 
 	}	
 	stop() {
-		console.log("stop") 
+//		console.log("stop") 
 		if(this.seq.cont) this.ongn.noteoff(this.syn.now())
 		this.queue.clearqueue(this.id)
 
@@ -464,11 +485,14 @@ class Clip {
 	}
 	getnote() {
 		if(!this.ongn) return null ;
-		return {
-			f:this.ongn.o1.frequency.value,
-			v:this.ongn.e1.gain.value 
-		}
-
+		return [{
+			f:this.ongn.mainosc.frequency.value,
+			v:this.ongn.mainenv.gain.value 
+		}]
+	}
+	getqueue() {
+		const q = this.queue.getplaying(this.id)  
+		return q.length==0?null:q 
 	}
 	disconnect() {
 		if(this.ongn) this.ongn.disconnect()
@@ -496,7 +520,7 @@ class MML {
 			'gi')
 //				console.log(/O[1-8]|<|>|L[0-9]+|H[0-9\.]+|[CDEFGAB][!#-+]*[0-9]*\.*&?|R[0-9]*\.*|{([A-G][!#\-+]*|<|>)+}[0-9]*/gi)
 			const m = mml.match(exp)
-			console.log(m)
+//			console.log(m)
 			for(let n of m) {
 				const c = n[0].toUpperCase()
 				switch(c) {
