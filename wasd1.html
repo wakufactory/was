@@ -89,12 +89,13 @@ onload = function(){
 		requestAnimationFrame(frame)
 		$A('td > div').forEach(o=>{
 			const id = o.id 
-			const n = bs[bank][id]?.clip?.getnote()
-			if(n) {
-				let name = id 
-				if(params[id].name) name = params[id].name
+      let name = id 
+      if(params[id]?.name) name = params[id].name
+			const q = bs[bank][id]?.clip?.getqueue()
+			if(q) {
+        const n = q[q.length-1].ongn.getnote() 
 				o.querySelector("div").innerHTML = "<strong>"+name+"</strong><br/>"+n.f.toString().substr(0,5)+"<br/>"+n.v.toString().substr(0,5)
-			}
+			} else o.querySelector("div").innerHTML = "<strong>"+name+"</strong>"
 		})
 	}
 	requestAnimationFrame(frame)
