@@ -121,8 +121,11 @@ class SeqQueue {
 			let pq = [] 
 			for(let q of this.pqueue) {	//再生予約中queue
 				if(q.time < now) q.playing = 1 	//再生中
-				if(q.endtime < now) {	//再生終了
-					if(q.ongn.poly) q.ongn.disconnect()	//polyモードのときは音源をdisconnect 
+				if(q.endtime != 0 && q.endtime < now) {	//再生終了
+					if(q.ongn.poly) {
+						q.ongn.stop()
+						q.ongn.disconnect()	//polyモードのときは音源をdisconnect 
+					}
 				} else pq.push(q)
 			}
 			this.pqueue = pq 
@@ -192,6 +195,8 @@ class Track {
 		}		
 	}
 }//Track
+
+
 // osc1 - osc1_a ---- filter1 --- amp1 --- out
 // osc2 - osc2_a  -|        env1---|
 // noise - noise_a-|
@@ -219,6 +224,7 @@ constructor(synth) {
 		{out:"lf_osc1_gain",'in':"osc1",target:"detune"}
 	]
 }
+//audio nodeを構成
 init(param,track=null) {
 	this.outnode = this.synth.innode 	
 	if(track) this.outnode = track.innode
@@ -249,6 +255,7 @@ init(param,track=null) {
 	
 	this.mainosc = this.o1 
 	this.mainenv = this.e1 
+	this.outnode = this.e1
 	
 	if(param.lfo_osc) {
 		this.l1 = this.ctx.createOscillator() ;
@@ -285,10 +292,11 @@ init(param,track=null) {
 	};
 	this.setopt(param) ;
 }
+//出力をdetach
 disconnect() {
-	this.e1.disconnect()
+	this.outnode.disconnect()
 }
-
+//音源パラメータのセット
 setopt(param) {
 	if(param) {
 		this.opt = structuredClone(param) ;
@@ -338,7 +346,7 @@ setopt(param) {
 		if(self.opt.onended)  self.opt.onended.call(self) ;
 	}
 }
-
+//オシレータの起動
 start(t) {
 	if(!this.sf) {
 		this.o1.start(t) ;
@@ -349,7 +357,17 @@ start(t) {
 		if(this.l3) this.l3.start(t)
 	}
 }
-
+stop(t) {
+	if(this.sf) {
+		this.o1.stop(t) ;
+		this.sf = false ;
+		if(this.no1) this.no1.stop(t)
+		if(this.l1) this.l1.stop(t)
+		if(this.l2) this.l2.stop(t)
+		if(this.l3) this.l3.stop(t)
+	}
+}
+// 発音エンベロープをセットして終了時間を返す
 note(f,len,time) {
 	if(time==undefined) time = 0 ;
 	if(typeof f =="string") f = this.note2freq(f) ;
@@ -357,26 +375,29 @@ note(f,len,time) {
 //console.log(f+" "+len+" "+time)
 
 	let tofs = (this.opt.timemode==1?0:now) + time
-	this.o1.frequency.setValueAtTime(f, tofs) ;
-	this.e1.gain.cancelAndHoldAtTime(tofs==0?0:(tofs-0.01)) //前の音のenvelope解除
-	this.e1.gain.linearRampToValueAtTime(0, tofs );
-	this.endtime = this.setenv(this.e1.gain,tofs,len,this.opt.eg) ;
+	this.mainosc.frequency.setValueAtTime(f, tofs) ;
+	this.mainenv.gain.cancelAndHoldAtTime(tofs==0?0:(tofs-0.01)) //前の音のenvelope解除
+	this.mainenv.gain.linearRampToValueAtTime(0, tofs );
+	this.endtime = this.setenv(this.mainenv.gain,tofs,len,this.opt.eg) ;
 	
 	if(this.opt.eg_osc) {
 		this.opt.eg.minvalue = f;
 		this.opt.eg.maxvalue = this.opt.eg_osc.minvalue+100 ;
-		this.setenv(this.o1.frequency,tofs,len,this.opt.eg_osc) ;
-		this.o1.frequency.cancelAndHoldAtTime(tofs==0?0:(tofs-0.01)) //前の音のenvelope解除
+		this.setenv(this.mainosc.frequency,tofs,len,this.opt.eg_osc) ;
+		this.mainosc.frequency.cancelAndHoldAtTime(tofs==0?0:(tofs-0.01)) //前の音のenvelope解除
 	}
 	this.start(tofs) ;
 	return this.endtime
 }
+//発音終了
 noteoff(time) {
 	const endtime = time +this.opt.eg.release  ;
 	const sv = (this.opt.eg.maxvalue-this.opt.eg.minvalue)*this.opt.eg.sustain+this.opt.eg.minvalue ;
-	this.e1.gain.setValueAtTime(sv, this.synth.now());
-	this.e1.gain.linearRampToValueAtTime(this.opt.eg.minvalue, endtime );	
+	this.mainenv.gain.setValueAtTime(sv, this.synth.now());
+	this.mainenv.gain.linearRampToValueAtTime(this.opt.eg.minvalue, endtime );	
 }
+//エンベロープセット
+// endtime = now + len + release len==0の場合(連続音)はendtime=0
 setenv(tgt,now,len,param) {
 //	console.log(param)
 	tgt.setValueAtTime(param.minvalue, now);
@@ -392,6 +413,7 @@ setenv(tgt,now,len,param) {
 //	console.log("eg end"+endtime)
 	return endtime ;
 }
+//リアルタイムで発音中の周波数とvolueを返す
 getnote() {
 	return {
 		f:this.mainosc.frequency.value,
@@ -527,19 +549,19 @@ class MML {
 			for(let n of m) {
 				const c = n[0].toUpperCase()
 				switch(c) {
-					case "O":
+					case "O":	//octave
 						oct = parseInt(n.substr(1))
 						break ; 
-					case "<":
+					case "<":	//octave up
 						oct += 1 ;
 						break ;
-					case ">":
+					case ">":	//octave down
 						oct -= 1 ;
 						break 
-					case "L":
+					case "L":	//note length
 						len = parseInt(n.substr(1))
 						break ;  				
-					case "H":
+					case "H":	//note gate ratio
 						gate = parseFloat(n.substr(1))
 						break ;  
 					case "{":

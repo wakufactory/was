@@ -6,7 +6,7 @@
 <title>text synth</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js" integrity="sha512-CSBhVREyzHAjAFfBlIBakjoRUKp5h7VSweP0InR/pAJyptH7peuhCsqAI/snV+TwZmXZqoUklpXp6R6wMnYf5Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.24.0/ace.min.js" integrity="sha512-YEOWpWsG+L2bJKz1lZDT+R6rdZcSWPydm2G0VRBjihQKS9QDk6N2HQXNjWy9ZJ0EeDA3TEuPhSxK7xb1d1866w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="was2.js"></script>
+<script src="was2.js?0121"></script>
 <script>
 const $ = (o) => document.querySelector(o)
 const $A = (o) => document.querySelectorAll(o)
@@ -46,9 +46,12 @@ onload = function(){
 	$A('td > div').forEach(o=>{
 		o.addEventListener(event,ev=>{
 			const id = ev.target.getAttribute('id') ;
-			save(bank)
+      save(bank)
 			const param = params[id]
 			if(!param) return 
+
+      $('#src').value = (JSON.stringify(param,null,2))
+      navigator.clipboard.writeText(JSON.stringify(param,null,2))
 			ev.target.classList.add("on") ;
 			bs[bank][id].keyon("loop1",param)
 		})
@@ -66,6 +69,17 @@ onload = function(){
 	editor.setFontSize(13);
 	editor.setTheme("ace/theme/cobalt");
 	editor.renderer.setShowGutter(false)	
+  var keybind = {
+      name: 'save',
+      bindKey: {win: 'Ctrl-S',  mac: 'Command-S'},
+      exec: (editor)=> {
+          save(bank) ;
+      },
+  }
+  editor.commands.addCommand(keybind);
+  $('#sbtn').addEventListener("click",ev=>{
+    save(bank)
+  })
 	const es = {}
 	$A('div.bank > div').forEach(o=>{
 		const ss = ace.createEditSession("","ace/mode/yaml") 
@@ -110,7 +124,6 @@ function save(bank) {
 		$('#msg').innerHTML = "data error, not saved" 
 		return 		
 	}
-console.log(d)
 	params = d 
 	let sd = JSON.parse(localStorage.getItem("wasd1") )
 	if(!sd) sd = {banks:{}}
@@ -134,7 +147,6 @@ function load(bank) {
 		return 
 	}	
 	params = d 
-	console.log(d)
 	es[bank].setValue(src.banks[bank] )
 	$('#msg').innerHTML = "bank "+bank+" loaded" 
 }
@@ -177,7 +189,7 @@ function sound(syn,id,cb) {
 }
 sound.prototype.loop1 = function(k,param) {
 	if(!param) return 
-		
+
 	if(param.keymode != "push" && k==0) return ;
 	if(this.st==1 ) {
 		this.clip.stop()
@@ -647,8 +659,10 @@ div.bank div.on {
 <div class=l><div>treble:</div><div><input id="s_tre" type="range"/></div><div><input type="text" size="4" id="s_tre_v"/></div></div>
 </div>
 </div> 
+<textarea id=src cols=60></textarea>
 </div>
 <div id=right>
+<button id=sbtn >save</button>
 <div id=msg>.</div>
 <div id=editor></div>
 </div>
